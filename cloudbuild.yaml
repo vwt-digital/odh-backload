@@ -1,0 +1,26 @@
+---
+timeout: 1800s
+steps:
+  # Clone odh-backload public repo
+  - name: 'gcr.io/cloud-builders/git'
+    args:
+      - 'clone'
+      - '--branch=${BRANCH_NAME}'
+      - 'https://github.com/vwt-digital/odh-backload.git'
+
+  - name: 'gcr.io/cloud-builders/gsutil'
+    args:
+      - 'cp'
+      - 'gs://${PROJECT_ID}-dcat-deployed-stg/data_catalog.json'
+      - '.'
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'Handle backload request'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        ls -lR
+        pip3 install -r requirements.txt
+        python3 backload.py
+    dir:
