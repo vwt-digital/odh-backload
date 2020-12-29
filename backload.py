@@ -191,7 +191,7 @@ def parse_args():
 
 def main(args):
 
-    datacatalog = DataCatalog('data_catalog.json')
+    datacatalog = DataCatalog('../data_catalog.json')
 
     for changed_file in git_changed_files(args.project_id):
         print(changed_file)
