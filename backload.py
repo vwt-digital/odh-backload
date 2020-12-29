@@ -185,13 +185,14 @@ def parse_args():
 
     parser = argparse.ArgumentParser(description='Backload odh messages')
     parser.add_argument('-p', '--project-id', required=True, help='name of the GCP project')
+    parser.add_argument('-d', '--data-catalog', required=True, help='Data catalog file')
 
     return parser.parse_args()
 
 
 def main(args):
 
-    datacatalog = DataCatalog('../data_catalog.json')
+    datacatalog = DataCatalog(args.data_catalog)
 
     for changed_file in git_changed_files(args.project_id):
         print(changed_file)
