@@ -157,15 +157,17 @@ def git_changed_files(project_id, branch):
     # repo = git.Repo('../odh-backload-requests')
     print(repo.heads)
 
+    # repo.heads[branch].checkout()
+
     files = []
 
     if branch == 'develop':
-        repo.heads.develop.checkout()
+        # repo.heads.develop.checkout()
         last_commit = list(repo.iter_commits(paths='config/{}'.format(project_id)))[0]
         files = [file for file in last_commit.stats.files.keys() if project_id in file]
 
     elif branch == 'master':
-        repo.heads.master.checkout()
+        # repo.heads.master.checkout()
         headcommit = repo.head.commit
         while True:
             headcommit = headcommit.parents[0]
