@@ -150,24 +150,20 @@ def publish(bucket, start_from, publisher, topic):
     print('Published {} messages during {}'.format(message_cnt, datetime.now() - start_time))
 
 
-def git_changed_files(project_id, branch):
+def git_changed_files(project_id):
     """Returns commit info for the last commmit in the current repo."""
 
     repo = git.Repo('')
     # repo = git.Repo('../odh-backload-requests')
-    print(repo.heads)
-
-    # repo.heads[branch].checkout()
+    branch = str(repo.active_branch)
 
     files = []
 
     if branch == 'develop':
-        # repo.heads.develop.checkout()
         last_commit = list(repo.iter_commits(paths='config/{}'.format(project_id)))[0]
         files = [file for file in last_commit.stats.files.keys() if project_id in file]
 
     elif branch == 'master':
-        # repo.heads.master.checkout()
         headcommit = repo.head.commit
         while True:
             headcommit = headcommit.parents[0]
@@ -189,7 +185,6 @@ def parse_args():
 
     parser = argparse.ArgumentParser(description='Backload odh messages')
     parser.add_argument('-p', '--project-id', required=True, help='name of the GCP project')
-    parser.add_argument('-b', '--branch', required=True, help='branch of the git repo')
 
     return parser.parse_args()
 
@@ -198,7 +193,7 @@ def main(args):
 
     datacatalog = DataCatalog('data_catalog.json')
 
-    for changed_file in git_changed_files(args.project_id, args.branch):
+    for changed_file in git_changed_files(args.project_id):
         print(changed_file)
 
         with open(changed_file) as backload_request_file:
