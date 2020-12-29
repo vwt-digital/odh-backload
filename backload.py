@@ -156,6 +156,7 @@ def git_changed_files(project_id):
     repo = git.Repo('')
     # repo = git.Repo('../odh-backload-requests')
     branch = str(repo.active_branch)
+    print('active branch {}'.format(branch))
 
     files = []
 
