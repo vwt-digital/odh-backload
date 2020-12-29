@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
 import json
-import os
 import gzip
 import git
+import argparse
 from gobits import Gobits
 from datetime import datetime
 from google.cloud import storage
@@ -14,13 +14,9 @@ def get_bucket_name(topic):
     return '{}-history-stg'.format(topic)
 
 
-def get_project():
-    return os.environ['PROJECT_ID']
-
-
-def create_pubsub_topic(topic_name):
+def create_pubsub_topic(project_id, topic_name):
     publisher = pubsub_v1.PublisherClient()
-    topic_path = publisher.topic_path(get_project(), topic_name)
+    topic_path = publisher.topic_path(project_id, topic_name)
 
     try:
         publisher.create_topic(request={"name": topic_path})
@@ -28,10 +24,10 @@ def create_pubsub_topic(topic_name):
         print(e)
 
 
-def delete_pubsub_topic(topic_name):
+def delete_pubsub_topic(project_id, topic_name):
 
     publisher = pubsub_v1.PublisherClient()
-    topic_path = publisher.topic_path(get_project(), topic_name)
+    topic_path = publisher.topic_path(project_id, topic_name)
 
     try:
         publisher.delete_topic(request={"topic": topic_path})
@@ -39,12 +35,12 @@ def delete_pubsub_topic(topic_name):
         print(e)
 
 
-def create_pubsub_subscription(topic_name, subscription_name):
+def create_pubsub_subscription(project_id, topic_name, subscription_name):
 
     publisher = pubsub_v1.PublisherClient()
     subscriber = pubsub_v1.SubscriberClient()
-    subscription_path = subscriber.subscription_path(get_project(), subscription_name)
-    topic_path = publisher.topic_path(get_project(), topic_name)
+    subscription_path = subscriber.subscription_path(project_id, subscription_name)
+    topic_path = publisher.topic_path(project_id, topic_name)
 
     try:
         subscriber.create_subscription(request={"name": subscription_path, "topic": topic_path})
@@ -62,16 +58,17 @@ def list_blobs(bucket_name, start_from):
 
 class Publisher:
 
-    def __init__(self, topic_name: str, subscription_name: str):
+    def __init__(self, project_id: str, topic_name: str, subscription_name: str):
         self.topic_name = topic_name
         self.subscription_name = subscription_name
+        self.project_id = project_id
 
         self.publisherClient = pubsub_v1.PublisherClient()
         self.subscriberClient = pubsub_v1.SubscriberClient()
         self.backloadTopic = None
 
     def createTopic(self):
-        topic_path = self.publisherClient.topic_path(get_project(), self.topic_name)
+        topic_path = self.publisherClient.topic_path(self.project_id, self.topic_name)
 
         try:
             self.backloadTopic = self.publisherClient.create_topic(request={"name": topic_path})
@@ -79,8 +76,8 @@ class Publisher:
             print(e)
 
     def createSubscription(self):
-        subscription_path = self.subscriberClient.subscription_path(get_project(), self.subscription_name)
-        topic_path = self.publisherClient.topic_path(get_project(), self.topic_name)
+        subscription_path = self.subscriberClient.subscription_path(self.project_id, self.subscription_name)
+        topic_path = self.publisherClient.topic_path(self.project_id, self.topic_name)
 
         try:
             self.subscriberClient.create_subscription(request={"name": subscription_path, "topic": topic_path})
@@ -152,8 +149,6 @@ def publish(bucket, start_from, publisher, topic):
 
     print('Published {} messages during {}'.format(message_cnt, datetime.now() - start_time))
 
-    delete_pubsub_topic(topic)
-
 
 def git_changed_files(project_id):
     """Returns commit info for the last commmit in the current repo."""
@@ -185,11 +180,20 @@ def git_changed_files(project_id):
     return list(set(files))
 
 
-def main():
+def parse_args():
+    """A simple function to parse command line arguments."""
+
+    parser = argparse.ArgumentParser(description='Backload odh messages')
+    parser.add_argument('-p', '--project-id', required=True, help='name of the GCP project')
+
+    return parser.parse_args()
+
+
+def main(args):
 
     datacatalog = DataCatalog('data_catalog.json')
 
-    for changed_file in git_changed_files(get_project()):
+    for changed_file in git_changed_files(args.project_id):
         print(changed_file)
 
         with open(changed_file) as backload_request_file:
@@ -214,14 +218,16 @@ def main():
             backload_topic = '{}-backload'.format(topic['title'])
             backload_subscription = '{}-backload'.format(subscription['title'])
 
-            create_pubsub_topic(backload_topic)
-            create_pubsub_subscription(backload_topic, backload_subscription)
+            create_pubsub_topic(args.project_id, backload_topic)
+            create_pubsub_subscription(args.project_id, backload_topic, backload_subscription)
 
             publisher = pubsub_v1.PublisherClient()
-            topic_path = publisher.topic_path(get_project(), backload_topic)
+            topic_path = publisher.topic_path(args.project_id, backload_topic)
 
             publish(get_bucket_name(topic['title']), backload_request.start_from(), publisher, topic_path)
 
+            # delete_pubsub_topic(args.project_id, backload_topic)
+
 
 if __name__ == "__main__":
-    exit(main())
+    exit(main(parse_args()))
