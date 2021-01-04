@@ -1,22 +1,19 @@
 #!/usr/bin/env python3
 
 import json
-import gzip
+import zlib
 import git
 import argparse
+import time
 from gobits import Gobits
 from datetime import datetime
 from google.cloud import storage
 from google.cloud import pubsub_v1
 
 
-def get_bucket_name(topic):
-    return '{}-history-stg'.format(topic)
-
-
-def create_pubsub_topic(project_id, topic_name):
+def create_pubsub_topic(project_id, topic):
     publisher = pubsub_v1.PublisherClient()
-    topic_path = publisher.topic_path(project_id, topic_name)
+    topic_path = publisher.topic_path(project_id, '{}-backload'.format(topic['title']))
 
     try:
         publisher.create_topic(request={"name": topic_path})
@@ -24,10 +21,10 @@ def create_pubsub_topic(project_id, topic_name):
         print(e)
 
 
-def delete_pubsub_topic(project_id, topic_name):
+def delete_pubsub_topic(project_id, topic):
 
     publisher = pubsub_v1.PublisherClient()
-    topic_path = publisher.topic_path(project_id, topic_name)
+    topic_path = publisher.topic_path(project_id, '{}-backload'.format(topic['title']))
 
     try:
         publisher.delete_topic(request={"topic": topic_path})
@@ -35,15 +32,42 @@ def delete_pubsub_topic(project_id, topic_name):
         print(e)
 
 
-def create_pubsub_subscription(project_id, topic_name, subscription_name):
+def delete_pubsub_subscription(project_id, subscription):
 
-    publisher = pubsub_v1.PublisherClient()
     subscriber = pubsub_v1.SubscriberClient()
-    subscription_path = subscriber.subscription_path(project_id, subscription_name)
-    topic_path = publisher.topic_path(project_id, topic_name)
+
+    request = dict()
+    request['subscription'] = subscriber.subscription_path(project_id, '{}-backload'.format(subscription['title']))
+
+    print('===== DELETE SUBSCRIPTION ======')
+    print(request)
 
     try:
-        subscriber.create_subscription(request={"name": subscription_path, "topic": topic_path})
+        subscriber.delete_subscription(request=request)
+    except Exception as e:
+        print(e)
+
+
+def create_pubsub_subscription(project_id, topic, subscription):
+
+    subscriber = pubsub_v1.SubscriberClient()
+
+    request = dict()
+    request['name'] = subscriber.subscription_path(project_id, '{}-backload'.format(subscription['title']))
+    request['topic'] = pubsub_v1.PublisherClient().topic_path(project_id, '{}-backload'.format(topic['title']))
+    request['expiration_policy'] = {"ttl": {"seconds": 86400}}
+    request['ack_deadline_seconds'] = subscription['deploymentProperties']['ackDeadlineSeconds']
+
+    push_config = subscription['deploymentProperties']['pushConfig']
+    request['push_config'] = {"push_endpoint": push_config['pushEndpoint'],
+                              "oidc_token": {"service_account_email": push_config['oidcToken']['serviceAccountEmail'],
+                                             "audience": push_config['oidcToken']['audience']}}
+
+    print('==== CREATE SUBSCRIPTION (REQUEST) ====')
+    print(request)
+
+    try:
+        subscriber.create_subscription(request=request)
     except Exception as e:
         print(e)
 
@@ -54,38 +78,6 @@ def list_blobs(bucket_name, start_from):
     bucket = storage_client.get_bucket(bucket_name)
 
     return list(bucket.list_blobs(start_offset=start_from.strftime('%Y/%m/%d')))
-
-
-class Publisher:
-
-    def __init__(self, project_id: str, topic_name: str, subscription_name: str):
-        self.topic_name = topic_name
-        self.subscription_name = subscription_name
-        self.project_id = project_id
-
-        self.publisherClient = pubsub_v1.PublisherClient()
-        self.subscriberClient = pubsub_v1.SubscriberClient()
-        self.backloadTopic = None
-
-    def createTopic(self):
-        topic_path = self.publisherClient.topic_path(self.project_id, self.topic_name)
-
-        try:
-            self.backloadTopic = self.publisherClient.create_topic(request={"name": topic_path})
-        except Exception as e:
-            print(e)
-
-    def createSubscription(self):
-        subscription_path = self.subscriberClient.subscription_path(self.project_id, self.subscription_name)
-        topic_path = self.publisherClient.topic_path(self.project_id, self.topic_name)
-
-        try:
-            self.subscriberClient.create_subscription(request={"name": subscription_path, "topic": topic_path})
-        except Exception as e:
-            print(e)
-
-    def publish(self, message):
-        self.publisherClient.publish(self.backloadTopic, json.dumps(message).encode("utf-8"))
 
 
 class Request:
@@ -129,23 +121,40 @@ class DataSet:
 
 
 def publish(bucket, start_from, publisher, topic):
+
+    futures = dict()
+
+    def get_callback(f, data):
+        def callback(f):
+            try:
+                futures.pop(data)
+            except:  # noqa
+                print("Please handle {} for {}.".format(f.exception(), data))
+
+        return callback
+
     start_time = datetime.now()
     message_cnt = 0
 
-    blobs = list_blobs(bucket, start_from)
-    for blob in blobs:
+    for blob in list_blobs(bucket, start_from):
         print('==== BLOB {} ===='.format(blob.name))
-        blob.download_to_filename('file.gz')
 
-        with gzip.open('file.gz') as archive:
-            data = json.load(archive)
-            for message in data:
-                gobits = message['gobits']
-                gobits.append(Gobits().to_json())
-                message['gobits'] = gobits
+        for message in json.loads(zlib.decompress(blob.download_as_string(), 16+zlib.MAX_WBITS)):
+            gobits = message['gobits']
+            gobits.append(Gobits().to_json())
+            message['gobits'] = gobits
 
-                publisher.publish(topic, json.dumps(message).encode("utf-8"))
-                message_cnt += 1
+            data = str(message_cnt)
+            futures.update({data: None})
+
+            future = publisher.publish(topic, json.dumps(message).encode("utf-8"))
+            futures[data] = future
+            future.add_done_callback(get_callback(future, data))
+
+            message_cnt += 1
+
+    while futures:
+        time.sleep(1)
 
     print('Published {} messages during {}'.format(message_cnt, datetime.now() - start_time))
 
@@ -161,7 +170,12 @@ def git_changed_files(project_id):
 
     if branch == 'develop':
         last_commit = list(repo.iter_commits(paths='config/{}'.format(project_id)))[0]
-        files = [file for file in last_commit.stats.files.keys() if project_id in file]
+
+        # Only handle recent commits (to make sure the last commit is not reused when the code is re-deployed)
+        commit_time = datetime.fromtimestamp(last_commit.committed_date+last_commit.committer_tz_offset)
+
+        if (datetime.utcnow() - commit_time).total_seconds() < 600:
+            files = [file for file in last_commit.stats.files.keys() if project_id in file]
 
     elif branch == 'master':
         headcommit = repo.head.commit
@@ -181,8 +195,6 @@ def git_changed_files(project_id):
 
 
 def parse_args():
-    """A simple function to parse command line arguments."""
-
     parser = argparse.ArgumentParser(description='Backload odh messages')
     parser.add_argument('-p', '--project-id', required=True, help='name of the GCP project')
     parser.add_argument('-d', '--data-catalog', required=True, help='Data catalog file')
@@ -216,18 +228,16 @@ def main(args):
             print('=== SUBSCRIPTION ===')
             print(subscription)
 
-            backload_topic = '{}-backload'.format(topic['title'])
-            backload_subscription = '{}-backload'.format(subscription['title'])
-
-            create_pubsub_topic(args.project_id, backload_topic)
-            create_pubsub_subscription(args.project_id, backload_topic, backload_subscription)
+            create_pubsub_topic(args.project_id, topic)
+            delete_pubsub_subscription(args.project_id, subscription)
+            create_pubsub_subscription(args.project_id, topic, subscription)
 
             publisher = pubsub_v1.PublisherClient()
-            topic_path = publisher.topic_path(args.project_id, backload_topic)
+            topic_path = publisher.topic_path(args.project_id, '{}-backload'.format(topic['title']))
 
-            publish(get_bucket_name(topic['title']), backload_request.start_from(), publisher, topic_path)
+            publish('{}-history-stg'.format(topic['title']), backload_request.start_from(), publisher, topic_path)
 
-            # delete_pubsub_topic(args.project_id, backload_topic)
+            delete_pubsub_topic(args.project_id, topic)
 
 
 if __name__ == "__main__":
