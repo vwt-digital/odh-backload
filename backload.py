@@ -193,6 +193,7 @@ def git_changed_files(project_id):
 
         print(datetime.utcnow())
         print(commit_time)
+        print(datetime.fromtimestamp(last_commit.committed_date))
         print((datetime.utcnow() - commit_time).total_seconds())
 
         if (datetime.utcnow() - commit_time).total_seconds() < 600:
