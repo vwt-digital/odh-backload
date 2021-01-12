@@ -108,11 +108,7 @@ class DataCatalog:
             if dataset['identifier'] == search_identifier:
                 return dataset
 
-        try:
-            pass
-        except Exception:
-            print('Dataset with name [{}] not found'.format(search_identifier))
-            raise
+        raise ValueError('Dataset with name [{}] not found'.format(search_identifier))
 
 
 class DataSet:
@@ -129,11 +125,7 @@ class DataSet:
             if distribution['title'] == search_subscription:
                 return distribution
 
-        try:
-            pass
-        except Exception:
-            print('Subscription [{}] not found'.format(search_subscription))
-            raise
+        raise ValueError('Subscription [{}] not found'.format(search_subscription))
 
 
 def publish(bucket, start_from, publisher, topic):
@@ -179,8 +171,8 @@ def publish(bucket, start_from, publisher, topic):
 def git_changed_files(project_id):
     """Returns commit info for the last commmit in the current repo."""
 
-    # repo = git.Repo('')
-    repo = git.Repo('../odh-backload-requests')
+    repo = git.Repo('')
+    # repo = git.Repo('../odh-backload-requests')
     branch = str(repo.active_branch)
 
     files = []
