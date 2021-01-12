@@ -1,0 +1,67 @@
+---
+timeout: 1800s
+steps:
+
+  # Decrypt github ssh private key
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: 'Decrypt github ssh private key'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        gcloud secrets versions access latest \
+          --secret "${PROJECT_ID}-github-private-key" > /root/.ssh/id_rsa
+    volumes:
+      - name: 'ssh'
+        path: /root/.ssh
+
+  # Set up git with key and domain
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: 'Setup ssh private key'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        chmod 600 /root/.ssh/id_rsa
+        cat <<EOF >/root/.ssh/config
+        Hostname github.com
+        IdentityFile /root/.ssh/id_rsa
+        EOF
+        touch /root/.ssh/known_hosts
+        ssh-keyscan github.com >> /root/.ssh/known_hosts
+    volumes:
+      - name: 'ssh'
+        path: /root/.ssh
+
+  # Use git clone for private repo
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: 'Get clone of high-privilege-access-requests repo'
+    entrypoint: 'git'
+    args:
+      - 'clone'
+      - '--branch=${BRANCH_NAME}'
+      - 'git@github.com:vwt-digital-config/odh-backload-requests.git'
+    volumes:
+      - name: 'ssh'
+        path: /root/.ssh
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: 'Copy data catalog from storage'
+    entrypoint: 'gsutil'
+    args:
+      - 'cp'
+      - 'gs://${PROJECT_ID}-dcat-deployed-stg/data_catalog.json'
+      - '.'
+    dir: 'odh-backload-requests'
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: 'Handle backload request'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        pip3 install --upgrade pip  # Solve slow loading of grpcio
+
+        pip3 install -r ../odh-backload/requirements.txt
+        python3 ../odh-backload/backload.py --project-id ${PROJECT_ID} --data-catalog data_catalog.json
+    dir: 'odh-backload-requests'
