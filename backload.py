@@ -179,8 +179,8 @@ def publish(bucket, start_from, publisher, topic):
 def git_changed_files(project_id):
     """Returns commit info for the last commmit in the current repo."""
 
-    repo = git.Repo('')
-    # repo = git.Repo('../odh-backload-requests')
+    # repo = git.Repo('')
+    repo = git.Repo('../odh-backload-requests')
     branch = str(repo.active_branch)
 
     files = []
@@ -190,6 +190,10 @@ def git_changed_files(project_id):
 
         # Only handle recent commits (to make sure the last commit is not reused when the code is re-deployed)
         commit_time = datetime.fromtimestamp(last_commit.committed_date+last_commit.committer_tz_offset)
+
+        print(datetime.utcnow())
+        print(commit_time)
+        print((datetime.utcnow() - commit_time).total_seconds())
 
         if (datetime.utcnow() - commit_time).total_seconds() < 600:
             files = [file for file in last_commit.stats.files.keys() if project_id in file]
