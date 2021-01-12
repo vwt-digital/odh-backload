@@ -62,6 +62,6 @@ steps:
       - |
         pip3 install --upgrade pip  # Solve slow loading of grpcio
 
-        pip3 install -r ../odh-backload/requirements.txt
-        python3 ../odh-backload/backload.py --project-id ${PROJECT_ID} --data-catalog data_catalog.json
+        pip3 install -r ../requirements.txt
+        python3 ../backload.py --project-id ${PROJECT_ID} --data-catalog data_catalog.json
     dir: 'odh-backload-requests'
