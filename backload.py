@@ -108,8 +108,11 @@ class DataCatalog:
             if dataset['identifier'] == search_identifier:
                 return dataset
 
-        print('Dataset with name [{}] not found'.format(search_identifier))
-        raise
+        try:
+            pass
+        except Exception:
+            print('Dataset with name [{}] not found'.format(search_identifier))
+            raise
 
 
 class DataSet:
@@ -126,8 +129,11 @@ class DataSet:
             if distribution['title'] == search_subscription:
                 return distribution
 
-        print('Subscription [{}] not found'.format(search_subscription))
-        raise
+        try:
+            pass
+        except Exception:
+            print('Subscription [{}] not found'.format(search_subscription))
+            raise
 
 
 def publish(bucket, start_from, publisher, topic):
