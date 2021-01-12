@@ -189,12 +189,7 @@ def git_changed_files(project_id):
         last_commit = list(repo.iter_commits(paths='config/{}'.format(project_id)))[0]
 
         # Only handle recent commits (to make sure the last commit is not reused when the code is re-deployed)
-        commit_time = datetime.fromtimestamp(last_commit.committed_date+last_commit.committer_tz_offset)
-
-        print(datetime.utcnow())
-        print(commit_time)
-        print(datetime.fromtimestamp(last_commit.committed_date))
-        print((datetime.utcnow() - commit_time).total_seconds())
+        commit_time = datetime.fromtimestamp(last_commit.committed_date)
 
         if (datetime.utcnow() - commit_time).total_seconds() < 600:
             files = [file for file in last_commit.stats.files.keys() if project_id in file]
