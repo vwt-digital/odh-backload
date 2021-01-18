@@ -2,6 +2,7 @@
 
 import json
 import zlib
+import tarfile
 import git
 import argparse
 import time
@@ -148,7 +149,19 @@ def publish(bucket, start_from, publisher, topic):
     for blob in list_blobs(bucket, start_from):
         print('==== BLOB {} ===='.format(blob.name))
 
-        for message in json.loads(zlib.decompress(blob.download_as_string(), 16+zlib.MAX_WBITS)):
+        data = []
+
+        if 'archive.gz' in blob.name:
+            data = json.loads(zlib.decompress(blob.download_as_string(), 16+zlib.MAX_WBITS))
+
+        if 'tar.xz' in blob.name:
+            blob.download_to_filename('tempfile.xz')
+            with tarfile.open('tempfile.xz', mode='r:xz') as tar:
+                for member in tar.getmembers():
+                    f = tar.extractfile(member)
+                    data.extend(json.loads(f.read()))
+
+        for message in data:
             gobits = message['gobits']
             gobits.append(Gobits().to_json())
             message['gobits'] = gobits
