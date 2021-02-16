@@ -2,6 +2,7 @@
 
 import json
 import zlib
+import tarfile
 import git
 import argparse
 import time
@@ -96,13 +97,19 @@ class Request:
 
 class DataCatalog:
     def __init__(self, datacatalog_filename):
-        with open(datacatalog_filename) as data_catalog_file:
-            self.data_catalog = json.load(data_catalog_file)
+        try:
+            with open(datacatalog_filename) as data_catalog_file:
+                self.data_catalog = json.load(data_catalog_file)
+        except Exception:
+            print('Data catalog [{}] not found'.format(datacatalog_filename))
+            raise
 
     def getDataset(self, search_identifier):
         for dataset in self.data_catalog['dataset']:
             if dataset['identifier'] == search_identifier:
                 return dataset
+
+        raise ValueError('Dataset with name [{}] not found'.format(search_identifier))
 
 
 class DataSet:
@@ -119,6 +126,8 @@ class DataSet:
             if distribution['title'] == search_subscription:
                 return distribution
 
+        raise ValueError('Subscription [{}] not found'.format(search_subscription))
+
 
 def publish(bucket, start_from, publisher, topic):
 
@@ -130,6 +139,7 @@ def publish(bucket, start_from, publisher, topic):
                 futures.pop(data)
             except:  # noqa
                 print("Please handle {} for {}.".format(f.exception(), data))
+                raise
 
         return callback
 
@@ -139,7 +149,19 @@ def publish(bucket, start_from, publisher, topic):
     for blob in list_blobs(bucket, start_from):
         print('==== BLOB {} ===='.format(blob.name))
 
-        for message in json.loads(zlib.decompress(blob.download_as_string(), 16+zlib.MAX_WBITS)):
+        data = []
+
+        if 'archive.gz' in blob.name:
+            data = json.loads(zlib.decompress(blob.download_as_string(), 16+zlib.MAX_WBITS))
+
+        if 'tar.xz' in blob.name:
+            blob.download_to_filename('tempfile.xz')
+            with tarfile.open('tempfile.xz', mode='r:xz') as tar:
+                for member in tar.getmembers():
+                    f = tar.extractfile(member)
+                    data.extend(json.loads(f.read()))
+
+        for message in data:
             gobits = message['gobits']
             gobits.append(Gobits().to_json())
             message['gobits'] = gobits
@@ -172,7 +194,7 @@ def git_changed_files(project_id):
         last_commit = list(repo.iter_commits(paths='config/{}'.format(project_id)))[0]
 
         # Only handle recent commits (to make sure the last commit is not reused when the code is re-deployed)
-        commit_time = datetime.fromtimestamp(last_commit.committed_date+last_commit.committer_tz_offset)
+        commit_time = datetime.fromtimestamp(last_commit.committed_date)
 
         if (datetime.utcnow() - commit_time).total_seconds() < 600:
             files = [file for file in last_commit.stats.files.keys() if project_id in file]
@@ -204,40 +226,47 @@ def parse_args():
 
 def main(args):
 
-    datacatalog = DataCatalog(args.data_catalog)
+    try:
+        datacatalog = DataCatalog(args.data_catalog)
 
-    for changed_file in git_changed_files(args.project_id):
-        print(changed_file)
+        for changed_file in git_changed_files(args.project_id):
+            print(changed_file)
 
-        with open(changed_file) as backload_request_file:
-            request = json.load(backload_request_file)
+            with open(changed_file) as backload_request_file:
+                request = json.load(backload_request_file)
 
-        for request in request['request']:
-            backload_request = Request(request['backload'])
+            for request in request['request']:
+                backload_request = Request(request['backload'])
 
-            print('=== REQUEST ===')
-            print(backload_request.request)
+                print('=== REQUEST ===')
+                print(backload_request.request)
 
-            dataset = DataSet(datacatalog.getDataset(backload_request.dataset_identifier()))
+                dataset = DataSet(datacatalog.getDataset(backload_request.dataset_identifier()))
 
-            topic = dataset.topic()
-            print('=== TOPIC ===')
-            print(topic)
+                topic = dataset.topic()
+                print('=== TOPIC ===')
+                print(topic)
 
-            subscription = dataset.subscription(backload_request.subscription())
-            print('=== SUBSCRIPTION ===')
-            print(subscription)
+                subscription = dataset.subscription(backload_request.subscription())
+                print('=== SUBSCRIPTION ===')
+                print(subscription)
 
-            create_pubsub_topic(args.project_id, topic)
-            delete_pubsub_subscription(args.project_id, subscription)
-            create_pubsub_subscription(args.project_id, topic, subscription)
+                create_pubsub_topic(args.project_id, topic)
+                delete_pubsub_subscription(args.project_id, subscription)
+                create_pubsub_subscription(args.project_id, topic, subscription)
 
-            publisher = pubsub_v1.PublisherClient()
-            topic_path = publisher.topic_path(args.project_id, '{}-backload'.format(topic['title']))
+                publisher = pubsub_v1.PublisherClient()
+                topic_path = publisher.topic_path(args.project_id, '{}-backload'.format(topic['title']))
 
-            publish('{}-history-stg'.format(topic['title']), backload_request.start_from(), publisher, topic_path)
+                publish('{}-history-stg'.format(topic['title']), backload_request.start_from(), publisher, topic_path)
 
-            delete_pubsub_topic(args.project_id, topic)
+                delete_pubsub_topic(args.project_id, topic)
+
+                return 0
+
+    except Exception as e:
+        print(e)
+        return 1
 
 
 if __name__ == "__main__":
