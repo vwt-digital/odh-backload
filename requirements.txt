@@ -58,17 +58,17 @@ packaging==20.9
     # via google-api-core
 proto-plus==1.18.1
     # via google-cloud-pubsub
-protobuf==3.17.2
+protobuf==3.18.3
     # via
     #   google-api-core
     #   googleapis-common-protos
     #   proto-plus
-pyasn1-modules==0.2.8
-    # via google-auth
 pyasn1==0.4.8
     # via
     #   pyasn1-modules
     #   rsa
+pyasn1-modules==0.2.8
+    # via google-auth
 pycparser==2.20
     # via cffi
 pyparsing==2.4.7
@@ -90,7 +90,6 @@ six==1.16.0
     #   google-cloud-core
     #   google-resumable-media
     #   grpcio
-    #   protobuf
 smmap==4.0.0
     # via gitdb
 typing-extensions==3.10.0.0
